@@ -1,0 +1,325 @@
+---
+title: "MVA Group Final"
+author: "Kireeti Mantrala"
+date: "2023-04-22"
+output: html_document
+---
+
+```{r}
+library(readr)
+library(MVA)
+library(HSAUR2)
+library(SciViews)
+library(scatterplot3d)
+library(car)
+library(lattice)
+library(GGally)
+library(ggplot2)
+library(ggridges)
+library(ggthemes)
+library(cowplot)
+library(gapminder)
+library(gganimate)
+library(dplyr)
+library(grid)
+library(gridExtra)
+library(RColorBrewer)
+library(Hotelling)
+library(stats)
+library(biotools)
+library(factoextra)
+library(psych)
+library(corrplot)
+library(caTools)
+library(pROC)
+library(caret)
+library(NbClust)
+library(cluster)
+
+## The following is a data set for our class survey group, which contains information on the number of times each student opens their social media account on a weekly basis. Students who open their accounts 105 times or more are considered to be addicted, while those who open their accounts less than 105 times are considered non-addicted.
+
+## Loading the dataset
+
+survey <- read.csv("~/Downloads/Class_Survey.csv")
+
+#survey
+head(survey)
+summary(survey)
+
+## Finding my Z score - Kireeti Mantrala (Rows-107:113)
+Kireeti_zscore <- scale(survey[c(3:14)])
+#Kireeti_zscore
+options(max.print = 10000)
+
+
+## We will get the Scree Plot to understand if we can perform PCA on the given dataset
+
+sapply(survey, function(x) sum(is.na(x)))
+survey <- survey[complete.cases(survey),] 
+sapply(survey, function(x) sum(is.na(x)))
+
+attach(survey)
+#Getting the Correlation between the factors
+cor(survey[,3:14])
+
+survey_pca <- prcomp(survey[,3:14],scale=TRUE)
+
+fviz_eig(survey_pca, addlabels = TRUE)
+
+## Since the percentage is not above 75, we shall not proceed further with PCA and now perform the Factor Analysis to reduce and explore the underlying structure of these set of variables to provide insights into the relationships between different aspects or the Social Media Platforms of the dataset.
+
+```
+
+
+```{r}
+#Factor Analysis
+
+life.pc <- principal(survey[,3:14], nfactors=5, rotate="varimax")
+fa.diagram(life.pc)
+
+## Here, after performing Factor Analysis, we can identify the underlying factors that are driving the correlation between the set of variables determining the optimal number of factors to extract from the data.
+
+## RC1 has Total Social Media Screen Time, LinkedIn,Snapchat,Instagram,WhatsApp 
+## RC2 has WeChat, TikTok
+## RC3 Twitter, Facebook/Messenger
+## RC4 has only BeReal
+## RC5 Messages and Telegram with Telegram being inversely related.
+
+## Now we perform Cluster Analysis.
+
+```
+
+
+```{r}
+#Cluster Analysis
+efa_survey <- as.data.frame(life.pc$scores)
+
+
+## Adding RC4 to the new retained dataset
+efa_survey$BeReal <- survey$BeReal..hrs.
+#efa_survey
+
+# Data Scaling
+matstd_pro <- scale(efa_survey)
+
+# Kmeans
+
+fviz_nbclust(matstd_pro, kmeans, method = "gap_stat")
+
+
+fviz_nbclust <- function (x, FUNcluster = NULL, method = c("silhouette", "wss", 
+                                                           "gap_stat"), diss = NULL, k.max = 10, nboot = 100, verbose = interactive(), 
+                          barfill = "steelblue", barcolor = "steelblue", linecolor = "steelblue", 
+                          print.summary = TRUE, ...) 
+{
+  set.seed(123)
+  if (k.max < 2)
+    stop("k.max must bet > = 2")
+  method = match.arg(method)
+  if (!inherits(x, c("data.frame", "matrix")) & !("Best.nc" %in% 
+                                                  names(x))) 
+    stop("x should be an object of survey matrix/data.frame or ", 
+         "an object created by the function NbClust() [NbClust package].")
+  if (inherits(x, "list") & "Best.nc" %in% names(x)) {
+    best_nc <- x$Best.nc
+    if (any(survey(best_nc) == "numeric") ) 
+      print(best_nc)
+    else if (any(survey(best_nc) == "matrix") )
+      .viz_NbClust(x, print.summary, barfill, barcolor)
+  }
+  else if (is.null(FUNcluster)) 
+    stop("The argument FUNcluster is required. ", "Possible values are kmeans, pam, hcut, clara, ...")
+  else if (!is.function(FUNcluster)) {
+    stop("The argument FUNcluster should be a function. ", 
+         "Check if you're not overriding the specified function name somewhere.")
+  }
+  else if (method %in% c("silhouette", "wss")) {
+    if (is.data.frame(x)) 
+      x <- as.matrix(x)
+    if (is.null(diss)) 
+      diss <- stats::dist(x)
+    v <- rep(0, k.max)
+    if (method == "silhouette") {
+      for (i in 2:k.max) {
+        clust <- FUNcluster(x, i, ...)
+        v[i] <- .get_ave_sil_width(diss, clust$cluster)
+      }
+    }
+    else if (method == "wss") {
+      for (i in 1:k.max) {
+        clust <- FUNcluster(x, i, ...)
+        v[i] <- .get_withinSS(diss, clust$cluster)
+      }
+    }
+    df <- data.frame(clusters = as.factor(1:k.max), y = v, 
+                     stringsAsFactors = TRUE)
+    ylab <- "Total Within Sum of Square"
+    if (method == "silhouette") 
+      ylab <- "Average silhouette width"
+    p <- ggpubr::ggline(df, x = "clusters", y = "y", group = 1, 
+                        color = linecolor, ylab = ylab, xlab = "Number of clusters k", 
+                        main = "Optimal number of clusters")
+    if (method == "silhouette") 
+      p <- p + geom_vline(xintercept = which.max(v), linetype = 2, 
+                          color = linecolor)
+    return(p)
+  }
+  else if (method == "gap_stat") {
+    extra_args <- list(...)
+    gap_stat <- cluster::clusGap(x, FUNcluster, K.max = k.max, 
+                                 B = nboot, verbose = verbose, ...)
+    if (!is.null(extra_args$maxSE)) 
+      maxSE <- extra_args$maxSE
+    else maxSE <- list(method = "firstSEmax", SE.factor = 1)
+    p <- fviz_gap_stat(gap_stat, linecolor = linecolor, 
+                       maxSE = maxSE)
+    return(p)
+  }
+}
+
+.viz_NbClust <- function (x, print.summary = TRUE, barfill = "steelblue", 
+                          barcolor = "steelblue") 
+{
+  best_nc <- x$Best.nc
+  if (any(survey(best_nc) == "numeric") )
+    print(best_nc)
+  else if (any(survey(best_nc) == "matrix") ) {
+    best_nc <- as.data.frame(t(best_nc), stringsAsFactors = TRUE)
+    best_nc$Number_clusters <- as.factor(best_nc$Number_clusters)
+    if (print.summary) {
+      ss <- summary(best_nc$Number_clusters)
+      cat("Among all indices: \n===================\n")
+      for (i in 1:length(ss)) {
+        cat("*", ss[i], "proposed ", names(ss)[i], 
+            "as the best number of clusters\n")
+      }
+      cat("\nConclusion\n=========================\n")
+      cat("* According to the majority rule, the best number of clusters is ", 
+          names(which.max(ss)), ".\n\n")
+    }
+    df <- data.frame(Number_clusters = names(ss), freq = ss, 
+                     stringsAsFactors = TRUE)
+    p <- ggpubr::ggbarplot(df, x = "Number_clusters", 
+                           y = "freq", fill = barfill, color = barcolor) + 
+      labs(x = "Number of clusters k", y = "Frequency among all indices", 
+           title = paste0("Optimal number of clusters - k = ", 
+                          names(which.max(ss))))
+    return(p)
+  }
+}
+
+
+res.nbclust <- efa_survey %>% scale() %>% NbClust(distance = "euclidean", min.nc = 2, max.nc = 10, method = "complete", index ="all") 
+
+set.seed(123)
+km.res <- kmeans(matstd_pro, 2, nstart = 25)
+
+fviz_cluster(km.res, data = matstd_pro,
+             ellipse.type = "convex",
+             palette = "jco",
+             ggtheme = theme_minimal())
+
+pam.res <- pam(matstd_pro, 2)
+
+fviz_cluster(pam.res)
+
+## We cannot classify insights for the given elements in the dataset because these clusters are overlapping.
+
+## Confusion Matrix
+
+cluster <- ifelse(km.res$cluster > 1.5, "Not Addicted", "Addicted")
+actual <- ifelse(survey$Social.Media.Addiction == 1, "Addicted", "Not Addicted")
+confusion_mat <- table(cluster, actual)
+confusion_mat
+
+## Accuracy, Precision and Recall Metrics
+
+accuracy <- sum(diag(confusion_mat)) / sum(confusion_mat)
+precision <- confusion_mat[2, 2] / sum(confusion_mat[, 2])
+recall <- confusion_mat[2, 2] / sum(confusion_mat[2, ])
+
+accuracy
+recall
+precision
+
+## With the confusion matrix, we have performed Accuracy, Precison and Recall and obtained results:
+## Accuracy : 41%
+## Precision : 42%
+## Recall : 97%
+
+## The Cluster Analysis has a low accuracy of 41%, this indicates that the clusters obtained are not accurately separated and will be having an overlap.
+## The precision of the Cluster Analysis is 42%,this indicates that there may be a high number of false positives in the clusters, and it may be incorrectly classifying some instances as belonging to the cluster.
+## The recall of the model is high at 97%, which means that out of all the actual instances belonging to the cluster, the analysis was able to correctly identify 97% of them.
+
+## Now we perform Logistic Regression
+```
+```{r}
+## Logistic Regression
+
+survey$Social.Media.Addiction <- as.factor(survey$Social.Media.Addiction)
+str(survey)
+
+set.seed(123)
+split <- sample.split(survey$Social.Media.Addiction, SplitRatio = 0.70)
+train_cs <- subset(survey, split == TRUE)
+test_cs <- subset(survey, split == FALSE)
+
+Xtrain_cs <- train_cs[, 1:14]
+Ytrain_cs <- train_cs[, 15]
+Ytrain_cs <- unlist(Ytrain_cs)
+
+Xtest_cs <- test_cs[, 1:14]
+x_cs <- cbind(Xtrain_cs, Ytrain_cs)
+logistic_cs <- glm(Ytrain_cs ~ ., data = x_cs, family = 'binomial')
+
+summary(logistic_cs)
+
+## Confusion Matrix
+set.seed(1234) 
+probabilities_cs <- predict(logistic_cs, newdata = Xtest_cs, type = "response")
+
+predicted_cs <- ifelse(probabilities_cs > 0.5, "Addicted", "Not Addicted")
+actual_cs <- ifelse(test_cs$Social.Media.Addiction == 1, "Addicted", "Not Addicted")
+
+confusion_cs <- table(predicted_cs, actual_cs)
+length(predicted_cs)
+length(actual_cs)
+
+confusion_cs
+
+roc_cs <- roc(test_cs$Social.Media.Addiction, probabilities_cs)
+auc_cs <- auc(roc_cs)
+auc_cs
+
+ggroc(roc_cs, color = "blue", legacy.axes = TRUE) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+  scale_x_continuous(labels = scales::percent_format()) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(x = "False Positive Rate", y = "True Positive Rate",
+       title = paste("ROC Curve (AUC = ", round(auc_cs, 2), ")")) +
+  annotate("text", x = 0.5, y = 0.5, label = paste0("AUC = ", round(auc_cs, 2)))
+
+## Accuracy, Precision and Recall Metrics
+
+accuracy_cs <- sum(diag(confusion_cs)) / sum(confusion_cs)
+precision_cs <- confusion_cs[2, 2] / sum(confusion_cs[, 2])
+recall_cs <- confusion_cs[2, 2] / sum(confusion_cs[2, ])
+
+accuracy_cs
+recall_cs
+precision_cs
+
+## With the confusion matrix on the Logistic Regression, we have performed Accuracy, Precison and Recall and obtained results:
+## Accuracy : 71%
+## Precision : 65%
+## Recall : 68%
+
+## Conclusion:
+## The model has an overall accuracy of 71%, which means that it correctly predicts social media addiction 71% of the time. This indicates that the model may be useful, but there is still room for improvement.
+## The precision of the model is 65%, which means that out of all the instances the model predicted as social media addiction, only 65% were correct. This indicates that there may be some false positives in the model's predictions, and it may be flagging some students as addicted to social media when they are not.
+## The recall of the model is 68%, which means that out of all the actual cases from the survey, the model was able to correctly identify 68% of them. This indicates that there may be some cases of social media addiction that the model might be missing.
+## Based on these results, we can conclude that the model may be useful for predicting social media addiction in a multivariate analysis, but it could benefit from further refinement to improve its precision and recall values. Additionally, it is important to consider the cost of false positives and false negatives for the model.
+
+
+```
+
